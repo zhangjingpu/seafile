@@ -223,12 +223,9 @@ recover_interrupted_merges ()
         if (info.in_merge) {
             seaf_message ("Recovering merge for repo %.8s.\n", repo->id);
 
-            /* No one else is holding the lock. */
-            pthread_mutex_lock (&repo->lock);
             if (seaf_repo_merge (repo, "master", &err_msg, &unused) < 0) {
                 g_free (err_msg);
             }
-            pthread_mutex_unlock (&repo->lock);
         }
     }
     g_list_free (repos);

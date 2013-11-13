@@ -1522,6 +1522,8 @@ seaf_repo_manager_remove_repo_ondisk (SeafRepoManager *mgr, const char *repo_id)
     /* Once the item in Repo table is deleted, the repo is gone.
      * This is the "commit point".
      */
+    pthread_mutex_lock (&mgr->priv->db_lock);
+
     snprintf (sql, sizeof(sql), "DELETE FROM Repo WHERE repo_id = '%s'", repo_id);
     if (sqlite_query_exec (mgr->priv->db, sql) < 0)
         goto out;
@@ -1529,6 +1531,8 @@ seaf_repo_manager_remove_repo_ondisk (SeafRepoManager *mgr, const char *repo_id)
     snprintf (sql, sizeof(sql), 
               "DELETE FROM DeletedRepo WHERE repo_id = '%s'", repo_id);
     sqlite_query_exec (mgr->priv->db, sql);
+
+    pthread_mutex_unlock (&mgr->priv->db_lock);
 
     /* remove index */
     char path[SEAF_PATH_MAX];
@@ -2523,8 +2527,6 @@ checkout_repo_job (void *data)
         return NULL;
     }
 
-    pthread_mutex_lock (&repo->lock);
-
     repo->worktree = g_strdup (task->worktree);
 
     char *error_msg = NULL;
@@ -2538,7 +2540,6 @@ checkout_repo_job (void *data)
     task->success = TRUE;
 
 ret:
-    pthread_mutex_unlock (&repo->lock);
     return data;
 }
 

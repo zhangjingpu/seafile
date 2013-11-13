@@ -616,15 +616,12 @@ merge_job (void *vtask)
         return res;
     }
 
-    pthread_mutex_lock (&repo->lock);
-
     /* Try to commit if worktree is not clean. */
     if (seaf_repo_is_worktree_changed (repo) && fix_dirty_worktree (repo) < 0) {
         seaf_message ("[sync mgr] Worktree is not clean. Skip merging repo %s(%.8s).\n",
                    repo->name, repo->id);
         res->success = FALSE;
         res->worktree_dirty = TRUE;
-        pthread_mutex_unlock (&repo->lock);
         return res;
     }
 
@@ -644,13 +641,11 @@ merge_job (void *vtask)
                    repo->name, repo->id);
         res->success = FALSE;
         g_free (err_msg);
-        pthread_mutex_unlock (&repo->lock);
         return res;
     }
 
     res->success = TRUE;
     g_free (err_msg);
-    pthread_mutex_unlock (&repo->lock);
     seaf_message ("[Sync mgr] Merged repo %s(%.8s).\n", repo->name, repo->id);
     return res;
 }
@@ -919,8 +914,6 @@ commit_job (void *vtask)
     if (repo->delete_pending)
         return res;
 
-    pthread_mutex_lock (&repo->lock);
-
     res->changed = TRUE;
     res->success = TRUE;
 
@@ -934,7 +927,6 @@ commit_job (void *vtask)
     }
     g_free (commit_id);
 
-    pthread_mutex_unlock (&repo->lock);
     return res;
 }
 

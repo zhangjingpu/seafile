@@ -12,18 +12,8 @@ seaf_wt_monitor_new (SeafileSession *seaf)
     priv->handle_hash = g_hash_table_new_full
         (g_str_hash, g_str_equal, g_free, NULL);
 
-    priv->status_hash = g_hash_table_new_full
-        (g_direct_hash, g_direct_equal, NULL, g_free);
-
-#ifdef WIN32
-    priv->buf_hash = g_hash_table_new_full
-        (g_direct_hash, g_direct_equal, NULL, NULL);
-#endif
-
-#ifdef __linux__
-    priv->mapping_hash = g_hash_table_new_full (g_direct_hash, g_direct_equal,
-                                                NULL, (GDestroyNotify)free_mapping);
-#endif
+    priv->info_hash = g_hash_table_new_full
+        (g_direct_hash, g_direct_equal, NULL, (GDestroyNotify)free_repo_watch_info);
 
     monitor->priv = priv;
     monitor->seaf = seaf;
@@ -146,12 +136,14 @@ seaf_wt_monitor_get_worktree_status (SeafWTMonitor *monitor,
                                      const char *repo_id)
 {
     gpointer key, value;
+    RepoWatchInfo *info;
 
     if (!g_hash_table_lookup_extended (monitor->priv->handle_hash, repo_id,
                                        &key, &value))
         return NULL;
 
-    return (WTStatus *)g_hash_table_lookup(monitor->priv->status_hash, value);
+    info = g_hash_table_lookup(monitor->priv->info_hash, value);
+    return info->status;
 }
 
 static void
@@ -168,41 +160,37 @@ static void
 handle_watch_command (SeafWTMonitorPriv *priv, WatchCommand *cmd)
 {
     long inotify_fd;
-    WTStatus *status;
 
     if (cmd->type == CMD_ADD_WATCH) {
-        if (g_hash_table_lookup_extended (priv->handle_hash, cmd->repo_id, NULL, NULL)) {
+        if (g_hash_table_lookup_extended (priv->handle_hash, cmd->repo_id,
+                                          NULL, NULL)) {
             reply_watch_command (priv, 0);
             return;
         }
 
         if (handle_add_repo(priv, cmd->repo_id, &inotify_fd) < 0) {
-            seaf_warning ("[wt mon] failed to watch worktree of repo %s.\n", cmd->repo_id);
+            seaf_warning ("[wt mon] failed to watch worktree of repo %s.\n",
+                          cmd->repo_id);
             reply_watch_command (priv, -1);
             return;
         }
-
-        g_hash_table_insert (priv->handle_hash, g_strdup(cmd->repo_id), (gpointer)(long)inotify_fd);
-        status = g_new0 (WTStatus, 1);
-        memcpy (status->repo_id, cmd->repo_id, 37);
-        g_hash_table_insert (priv->status_hash, (gpointer)(long)inotify_fd, status);
 
         seaf_debug ("[wt mon] add watch for repo %s\n", cmd->repo_id);
         reply_watch_command (priv, 0);
     } else if (cmd->type == CMD_DELETE_WATCH) {
         gpointer key, value;
-        if (!g_hash_table_lookup_extended (priv->handle_hash, cmd->repo_id, &key, &value)) {
+        if (!g_hash_table_lookup_extended (priv->handle_hash, cmd->repo_id,
+                                           &key, &value)) {
             reply_watch_command (priv, 0);
             return;
         }
 
-        g_hash_table_remove (priv->handle_hash, cmd->repo_id);
-        g_hash_table_remove (priv->status_hash, value);
-        handle_rm_repo (priv, value);
+        handle_rm_repo (priv, cmd->repo_id, value);
         reply_watch_command (priv, 0);
     } else if (cmd->type ==  CMD_REFRESH_WATCH) {
         if (handle_refresh_repo (priv, cmd->repo_id) < 0) {
-            seaf_warning ("[wt mon] failed to refresh watch of repo %s.\n", cmd->repo_id);
+            seaf_warning ("[wt mon] failed to refresh watch of repo %s.\n",
+                          cmd->repo_id);
             reply_watch_command (priv, -1);
             return;
         }
