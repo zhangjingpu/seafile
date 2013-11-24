@@ -9,6 +9,8 @@ seaf_wt_monitor_new (SeafileSession *seaf)
     SeafWTMonitor *monitor = g_new0 (SeafWTMonitor, 1);
     SeafWTMonitorPriv *priv = g_new0 (SeafWTMonitorPriv, 1);
 
+    pthread_mutex_init (&priv->hash_lock, NULL);
+
     priv->handle_hash = g_hash_table_new_full
         (g_str_hash, g_str_equal, g_free, NULL);
 
@@ -48,7 +50,9 @@ seaf_wt_monitor_start (SeafWTMonitor *monitor)
 }
 
 int
-seaf_wt_monitor_watch_repo (SeafWTMonitor *monitor, const char *repo_id)
+seaf_wt_monitor_watch_repo (SeafWTMonitor *monitor,
+                            const char *repo_id,
+                            const char *worktree)
 {
     SeafWTMonitorPriv *priv = monitor->priv;
     WatchCommand cmd;
@@ -56,6 +60,7 @@ seaf_wt_monitor_watch_repo (SeafWTMonitor *monitor, const char *repo_id)
 
     memcpy (cmd.repo_id, repo_id, 37);
     cmd.type = CMD_ADD_WATCH;
+    g_strlcpy (cmd.worktree, worktree, SEAF_PATH_MAX);
 
     int n = pipewriten (priv->cmd_pipe[1], &cmd, sizeof(cmd));
     
@@ -135,14 +140,23 @@ WTStatus *
 seaf_wt_monitor_get_worktree_status (SeafWTMonitor *monitor,
                                      const char *repo_id)
 {
+    SeafWTMonitorPriv *priv = monitor->priv;
     gpointer key, value;
     RepoWatchInfo *info;
 
-    if (!g_hash_table_lookup_extended (monitor->priv->handle_hash, repo_id,
-                                       &key, &value))
-        return NULL;
+    pthread_mutex_lock (&priv->hash_lock);
 
-    info = g_hash_table_lookup(monitor->priv->info_hash, value);
+    if (!g_hash_table_lookup_extended (priv->handle_hash, repo_id,
+                                       &key, &value)) {
+        pthread_mutex_unlock (&priv->hash_lock);
+        return NULL;
+    }
+
+    info = g_hash_table_lookup(priv->info_hash, value);
+    wt_status_ref (info->status);
+
+    pthread_mutex_unlock (&priv->hash_lock);
+
     return info->status;
 }
 
@@ -168,7 +182,7 @@ handle_watch_command (SeafWTMonitorPriv *priv, WatchCommand *cmd)
             return;
         }
 
-        if (handle_add_repo(priv, cmd->repo_id, &inotify_fd) < 0) {
+        if (handle_add_repo(priv, cmd->repo_id, cmd->worktree, &inotify_fd) < 0) {
             seaf_warning ("[wt mon] failed to watch worktree of repo %s.\n",
                           cmd->repo_id);
             reply_watch_command (priv, -1);

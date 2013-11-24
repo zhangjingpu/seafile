@@ -1389,6 +1389,9 @@ auto_commit_pulse (void *vmanager)
         }
         repo->worktree_invalid = FALSE;
 
+        if (repo->delete_pending)
+            continue;
+
         if (manager->priv->auto_sync_enabled && repo->auto_sync) {
             status = seaf_wt_monitor_get_worktree_status (manager->seaf->wt_monitor,
                                                           repo->id);
@@ -1407,6 +1410,7 @@ auto_commit_pulse (void *vmanager)
                         status->last_check = now;
                     }
                 }
+                wt_status_unref (status);
             }
         }
     }

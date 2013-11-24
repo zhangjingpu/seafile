@@ -166,11 +166,8 @@ check_worktree_common (SeafRepo *repo)
     }
 
     if (seaf_repo_check_worktree (repo) < 0) {
-        /* The worktree is invalid */
-        seaf_repo_manager_invalidate_repo_worktree (repo->manager, repo);
         return FALSE;
     }
-    seaf_repo_manager_validate_repo_worktree (repo->manager, repo);
 
     return TRUE;
 }
@@ -518,6 +515,52 @@ remove_deleted (struct index_state *istate, const char *worktree,
     }
 
     remove_marked_cache_entries (istate);
+}
+
+static int
+apply_worktree_changes_to_index (SeafRepo *repo, struct index_state *istate)
+{
+    WTStatus *status;
+    GQueue *event_q;
+    WTEvent *event;
+
+    status = seaf_wt_monitor_get_worktree_status (seaf->wt_monitor, repo->id);
+    if (!status) {
+        seaf_warning ("Can't find worktree status for repo %s(%.8s).\n",
+                      repo->name, repo->id);
+        return -1;
+    }
+
+    /* Get ownership of status->event_q */
+    pthread_mutex_lock (&status->q_lock);
+    event_q = status->event_q;
+    status->event_q = g_queue_new ();
+    pthread_mutex_unlock (&status->q_lock);
+
+    while (1) {
+        event = g_queue_pop_head (event_q);
+        if (!event)
+            break;
+
+        switch (event->ev_type) {
+        case WT_EVENT_CREATE_OR_UPDATE:
+            break;
+        case WT_EVENT_ADD_RECURSIVE:
+            break;
+        case WT_EVENT_DELETE:
+            break;
+        case WT_EVENT_RENAME:
+            break;
+        case WT_EVENT_OVERFLOW:
+            break;
+        }
+
+        wt_event_free (event);
+    }
+
+    g_queue_free (event_q);
+
+    return 0;
 }
 
 static int
@@ -1346,15 +1389,6 @@ seaf_repo_manager_validate_repo_worktree (SeafRepoManager *mgr,
         return;
 
     repo->worktree_invalid = FALSE;
-
-    if (repo->auto_sync) {
-        if (seaf_wt_monitor_watch_repo (seaf->wt_monitor, repo->id) < 0) {
-            g_warning ("failed to watch repo %s.\n", repo->id);
-            /* If we fail to add watch, sync manager
-             * will periodically check repo status and retry.
-             */
-        }
-    }
 }
 
 static int 
@@ -1415,7 +1449,7 @@ watch_repos (SeafRepoManager *mgr)
     for (node = mgr->priv->repo_tree->head; node; node = node->next) {
         repo = node->item;
         if (repo->auto_sync && !repo->worktree_invalid) {
-            if (seaf_wt_monitor_watch_repo (seaf->wt_monitor, repo->id) < 0) {
+            if (seaf_wt_monitor_watch_repo (seaf->wt_monitor, repo->id, repo->worktree) < 0) {
                 g_warning ("failed to watch repo %s.\n", repo->id);
                 /* If we fail to add watch at the beginning, sync manager
                  * will periodically check repo status and retry.
@@ -2264,7 +2298,7 @@ seaf_repo_manager_set_repo_property (SeafRepoManager *manager,
 
         if (g_strcmp0(value, "true") == 0) {
             repo->auto_sync = 1;
-            seaf_wt_monitor_watch_repo (seaf->wt_monitor, repo->id);
+            seaf_wt_monitor_watch_repo (seaf->wt_monitor, repo->id, repo->worktree);
         } else {
             repo->auto_sync = 0;
             seaf_wt_monitor_unwatch_repo (seaf->wt_monitor, repo->id);
@@ -2500,7 +2534,7 @@ checkout_job_done (void *vresult)
     seaf_branch_unref (local);
 
     if (repo->auto_sync) {
-        if (seaf_wt_monitor_watch_repo (seaf->wt_monitor, repo->id) < 0) {
+        if (seaf_wt_monitor_watch_repo (seaf->wt_monitor, repo->id, repo->worktree) < 0) {
             seaf_warning ("failed to watch repo %s(%.10s).\n", repo->name, repo->id);
             return;
         }

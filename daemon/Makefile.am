@@ -8,7 +8,6 @@ AM_CFLAGS = -DPKGDATADIR=\"$(pkgdatadir)\" \
 	@CCNET_CFLAGS@ \
 	@SEARPC_CFLAGS@ \
 	@GLIB2_CFLAGS@ \
-	@GNOME_KEYRING_CFLAGS@ \
 	@MSVC_CFLAGS@ \
 	-Wall
 
@@ -60,25 +59,22 @@ noinst_HEADERS = \
 	share-mgr.h \
 	gc.h \
 	wt-monitor-common.h \
+	wt-monitor-structs.h \
 	../common/sync-repo-common.h \
 	block-tx-client.h \
 	seafile-config.h \
 	$(proc_headers)
 
 if LINUX
-wt_monitor_src = wt-monitor-linux.c
+wt_monitor_src = wt-monitor-linux.c wt-monitor-structs.c
 endif
 
 if WIN32
-wt_monitor_src = wt-monitor-win32.c
+wt_monitor_src = wt-monitor-win32.c wt-monitor-structs.c
 endif
 
 if MACOS
-wt_monitor_src = wt-monitor-macos.c
-endif
-
-if HAVE_KEYSTORAGE_GK
-key_storage_src = repokey/seafile-gnome-keyring.c
+wt_monitor_src = wt-monitor-macos.c wt-monitor-structs.c
 endif
 
 common_src = \
@@ -101,7 +97,6 @@ common_src = \
 	../common/block-backend.c \
 	../common/block-backend-fs.c \
 	../common/mq-mgr.c \
-	$(key_storage_src) \
 	block-tx-client.c \
 	../common/block-tx-utils.c \
 	processors/check-tx-proc.c \

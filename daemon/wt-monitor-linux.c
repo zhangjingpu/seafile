@@ -27,6 +27,7 @@ typedef enum CommandType {
 typedef struct WatchCommand {
     CommandType type;
     char repo_id[37];
+    char worktree[SEAF_PATH_MAX];
 } WatchCommand;
 
 typedef struct WatchPathMapping {
@@ -51,11 +52,13 @@ typedef struct RepoWatchInfo {
     WatchPathMapping *mapping;
     RenameInfo *rename_info;
     EventInfo last_event;
+    char *worktree;
 } RepoWatchInfo;
 
 #define WATCH_MASK IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_CLOSE_WRITE
 
 struct SeafWTMonitorPriv {
+    pthread_mutex_t hash_lock;
     GHashTable *handle_hash;        /* repo_id -> inotify_fd */
     GHashTable *info_hash;          /* inotify_fd -> RepoWatchInfo */
     ccnet_pipe_t cmd_pipe[2];
@@ -70,35 +73,6 @@ static int
 add_watch_recursive (RepoWatchInfo *info, int in_fd,
                      const char *worktree, const char *path,
                      gboolean add_events);
-
-/* WTStatus */
-
-static WTStatus *create_wt_status (const char *repo_id)
-{
-    WTStatus *status = g_new0 (WTStatus, 1);
-
-    memcpy (status->repo_id, repo_id, 36);
-    status->event_q = g_queue_new ();
-    pthread_mutex_init (&status->q_lock, NULL);
-
-    return status;
-}
-
-static void free_event_cb (gpointer data, gpointer user_data)
-{
-    WTEvent *event = data;
-    wt_event_free (event);
-}
-
-static void free_wt_status (WTStatus *status)
-{
-    if (status->event_q) {
-        g_queue_foreach (status->event_q, free_event_cb, NULL);
-        g_queue_free (status->event_q);
-    }
-    pthread_mutex_destroy (&status->q_lock);
-    g_free (status);
-}
 
 /* WatchPathMapping */
 
@@ -161,7 +135,7 @@ unset_rename_processing_state (RenameInfo *info)
 /* RepoWatchInfo */
 
 static RepoWatchInfo *
-create_repo_watch_info (const char *repo_id)
+create_repo_watch_info (const char *repo_id, const char *worktree)
 {
     WTStatus *status = create_wt_status (repo_id);
     WatchPathMapping *mapping = create_mapping ();
@@ -171,6 +145,7 @@ create_repo_watch_info (const char *repo_id)
     info->status = status;
     info->mapping = mapping;
     info->rename_info = rename_info;
+    info->worktree = g_strdup(worktree);
 
     return info;
 }
@@ -178,32 +153,11 @@ create_repo_watch_info (const char *repo_id)
 static void
 free_repo_watch_info (RepoWatchInfo *info)
 {
-    free_wt_status (info->status);
+    wt_status_unref (info->status);
     free_mapping (info->mapping);
     free_rename_info (info->rename_info);
+    g_free (info->worktree);
     g_free (info);
-}
-
-/* WTEvent */
-
-static WTEvent *wt_event_new (int type, const char *path, const char *new_path)
-{
-    WTEvent *event = g_new0 (WTEvent, 1);
-
-    event->ev_type = type;
-    if (path)
-        event->path = g_strdup (path);
-    if (new_path)
-        event->new_path = g_strdup(new_path);
-
-    return event;
-}
-
-void wt_event_free (WTEvent *event)
-{
-    g_free (event->path);
-    g_free (event->new_path);
-    g_free (event);
 }
 
 static void
@@ -438,7 +392,6 @@ out:
 static gboolean
 process_events (SeafWTMonitorPriv *priv, const char *repo_id, int in_fd)
 {
-    SeafRepo *repo;
     char *event_buf = NULL;
     unsigned int buf_size;
     struct inotify_event *event;
@@ -446,12 +399,6 @@ process_events (SeafWTMonitorPriv *priv, const char *repo_id, int in_fd)
     int rc, n;
     char *dir;
     gboolean ret = FALSE;
-
-    repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
-    if (!repo) {
-        seaf_warning ("Repo %.8s not found.\n", repo_id);
-        return FALSE;
-    }
 
     rc = ioctl (in_fd, FIONREAD, &buf_size);
     if (rc < 0) {
@@ -487,7 +434,7 @@ process_events (SeafWTMonitorPriv *priv, const char *repo_id, int in_fd)
             goto out;
         }
 
-        process_one_event (in_fd, info, repo->worktree, dir,
+        process_one_event (in_fd, info, info->worktree, dir,
                            event, (offset >= buf_size));
     }
 
@@ -624,17 +571,10 @@ out:
 }
 
 static int
-add_watch (SeafWTMonitorPriv *priv, const char *repo_id)
+add_watch (SeafWTMonitorPriv *priv, const char *repo_id, const char *worktree)
 {
-    SeafRepo *repo;
     int inotify_fd;
     RepoWatchInfo *info;
-
-    repo = seaf_repo_manager_get_repo (seaf->repo_mgr, repo_id);
-    if (!repo) {
-        seaf_warning ("[wt mon] cannot find repo %s.\n", repo_id);
-        return -1;
-    }
 
     inotify_fd = inotify_init ();
     if (inotify_fd < 0) {
@@ -642,27 +582,34 @@ add_watch (SeafWTMonitorPriv *priv, const char *repo_id)
         return -1;
     }
 
+    pthread_mutex_lock (&priv->hash_lock);
     g_hash_table_insert (priv->handle_hash,
                          g_strdup(repo_id), (gpointer)(long)inotify_fd);
 
-    info = create_repo_watch_info (repo_id);
+    info = create_repo_watch_info (repo_id, worktree);
     g_hash_table_insert (priv->info_hash, (gpointer)(long)inotify_fd, info);
+    pthread_mutex_unlock (&priv->hash_lock);
 
-    if (add_watch_recursive (info, inotify_fd, repo->worktree, "", FALSE) < 0) {
+    if (add_watch_recursive (info, inotify_fd, worktree, "", FALSE) < 0) {
         close (inotify_fd);
+        pthread_mutex_lock (&priv->hash_lock);
         g_hash_table_remove (priv->handle_hash, repo_id);
         g_hash_table_remove (priv->info_hash, (gpointer)(long)inotify_fd);
+        pthread_mutex_unlock (&priv->hash_lock);
         return -1;
     }
 
     return inotify_fd;
 }
 
-static int handle_add_repo (SeafWTMonitorPriv *priv, const char *repo_id, long *handle) 
+static int handle_add_repo (SeafWTMonitorPriv *priv,
+                            const char *repo_id,
+                            const char *worktree,
+                            long *handle) 
 {
     int inotify_fd;
 
-    inotify_fd = add_watch (priv, repo_id);
+    inotify_fd = add_watch (priv, repo_id, worktree);
     if (inotify_fd < 0) {
         return -1;
     }
@@ -700,8 +647,10 @@ static int handle_rm_repo (SeafWTMonitorPriv *priv,
     FD_CLR (inotify_fd, &priv->read_fds);
     update_maxfd (priv);
 
+    pthread_mutex_lock (&priv->hash_lock);
     g_hash_table_remove (priv->handle_hash, repo_id);
     g_hash_table_remove (priv->info_hash, (gpointer)(long)inotify_fd);
+    pthread_mutex_unlock (&priv->hash_lock);
 
     return 0;
 }
