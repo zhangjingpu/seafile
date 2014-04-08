@@ -3109,8 +3109,7 @@ seafile_get_copy_task (const char *task_id, GError **error)
 int
 seafile_cancel_copy_task (const char *task_id, GError **error)
 {
-    seaf_copy_manager_cancel_task (seaf->copy_mgr, task_id);
-    return 0;
+    return seaf_copy_manager_cancel_task (seaf->copy_mgr, task_id);
 }
 
 int

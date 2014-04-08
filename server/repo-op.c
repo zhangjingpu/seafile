@@ -1596,8 +1596,6 @@ cross_repo_copy (const char *src_repo_id,
                                    src_dent->id, src_dent->mode, modifier, task,
                                    &new_size);
     if (!new_id) {
-        if (!task->canceled)
-            task->failed = TRUE;
         ret = -1;
         goto out;
     }
@@ -1616,6 +1614,9 @@ cross_repo_copy (const char *src_repo_id,
         goto out;
     }
 
+    if (task)
+        task->successful = TRUE;
+
     seaf_repo_manager_merge_virtual_repo (seaf->repo_mgr, dst_repo_id, NULL);
 
 out:
@@ -1630,6 +1631,9 @@ out:
 
     if (ret == 0) {
         update_repo_size (dst_repo_id);
+    } else {
+        if (task && !task->canceled)
+            task->failed = TRUE;
     }
 
     return ret;
@@ -1939,8 +1943,6 @@ cross_repo_move (const char *src_repo_id,
                                    src_dent->id, src_dent->mode, modifier, task,
                                    &new_size);
     if (!new_id) {
-        if (!task->canceled)
-            task->failed = TRUE;
         ret = -1;
         goto out;
     }
@@ -1967,6 +1969,9 @@ cross_repo_move (const char *src_repo_id,
         goto out;
     }
 
+    if (task)
+        task->successful = TRUE;
+
     seaf_repo_manager_cleanup_virtual_repos (seaf->repo_mgr, src_repo_id);
     seaf_repo_manager_merge_virtual_repo (seaf->repo_mgr, src_repo_id, NULL);
 
@@ -1982,6 +1987,9 @@ out:
 
     if (ret == 0) {
         update_repo_size (dst_repo_id);
+    } else {
+        if (task && !task->canceled)
+            task->failed = TRUE;
     }
 
     return ret;
