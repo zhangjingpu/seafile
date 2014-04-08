@@ -3047,6 +3047,7 @@ seafile_copy_file (const char *src_repo_id,
                    const char *dst_filename,
                    const char *user,
                    int need_progress,
+                   int synchronous,
                    GError **error)
 {
     GObject *ret = NULL;
@@ -3065,7 +3066,8 @@ seafile_copy_file (const char *src_repo_id,
     ret = (GObject *)seaf_repo_manager_copy_file (seaf->repo_mgr,
                                                   src_repo_id, src_dir, src_filename,
                                                   dst_repo_id, dst_dir, dst_filename,
-                                                  user, need_progress, error);
+                                                  user, need_progress, synchronous,
+                                                  error);
     return ret;
 }
 
@@ -3078,6 +3080,7 @@ seafile_move_file (const char *src_repo_id,
                    const char *dst_filename,
                    const char *user,
                    int need_progress,
+                   int synchronous,
                    GError **error)
 {
     GObject *ret = NULL;
@@ -3096,7 +3099,8 @@ seafile_move_file (const char *src_repo_id,
     ret = (GObject *)seaf_repo_manager_move_file (seaf->repo_mgr,
                                                   src_repo_id, src_dir, src_filename,
                                                   dst_repo_id, dst_dir, dst_filename,
-                                                  user, need_progress, error);
+                                                  user, need_progress, synchronous,
+                                                  error);
     return ret;
 }
 
@@ -3109,8 +3113,7 @@ seafile_get_copy_task (const char *task_id, GError **error)
 int
 seafile_cancel_copy_task (const char *task_id, GError **error)
 {
-    seaf_copy_manager_cancel_task (seaf->copy_mgr, task_id);
-    return 0;
+    return seaf_copy_manager_cancel_task (seaf->copy_mgr, task_id);
 }
 
 int
