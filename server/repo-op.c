@@ -1486,6 +1486,8 @@ copy_seafile (SeafRepo *src_repo, SeafRepo *dst_repo, const char *file_id,
     if (task)
         ++(task->done);
 
+    sleep (1);
+
     *size = file->file_size;
     char *ret = g_strdup(file->file_id);
 
