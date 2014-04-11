@@ -19,14 +19,14 @@ else
 endif
 
 if COMPILE_SERVER
-  MAKE_SERVER = server tools httpserver $(MAKE_CONTROLLER) $(MAKE_FUSE)
+  MAKE_SERVER = server tools fileserver $(MAKE_CONTROLLER) $(MAKE_FUSE)
 endif
 
 SUBDIRS = include lib common app python tests doc \
 	$(MAKE_CLIENT) $(MAKE_SERVER) $(MAKE_data)
 
 DIST_SUBDIRS = include lib common app python tests \
-	daemon server tools httpserver controller \
+	daemon server tools fileserver controller \
 	data doc fuse
 
 INTLTOOL = \
