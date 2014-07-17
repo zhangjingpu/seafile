@@ -50,4 +50,6 @@
   <!-- <?define ProductGuid="CE1C40E9-F48D-495B-8F45-66C01A6F0EA7" ?> (3.0.3) -->
   <?define ProductGuid="0D56A3F4-7600-4280-91F8-0CDC43D5BFE3" ?>
 
+  <?define ShellGuid="D14BEDD3-4E05-4F2F-B0DE-C0381E6AE606" ?>
+
 </Include>
